@@ -1,0 +1,860 @@
+Band Map API
+
+This is a design doc and spec for the Seattle Band Map REST API web service.
+
+
+CONTENTS
+
+Design Goals
+Access
+Versioning
+Authentication
+How To GET Stuff
+Collections
+How To Modify Stuff (POST, PATCH, PUT, DELETE)
+Filtering, Sorting, Paging, and Other API Features
+Example
+Errors
+Self-Documentation
+Caching
+URL Reference
+
+
+DESIGN GOALS
+
+The purpose of the API is to provide developers easy, helpful, standards-based programmatic access to Seattle Band Map data over the web for making apps for exploring bands and music scenes in Seattle and beyond.
+
+The API should be:
+
+ - Easy to Use: Connecting from any kind of app is simple and standards-based so devs can integrate with as little hassle as possible.  Interfaces are provided where devs would naturally expect and they function consistently and intuitively enough to be understood or guessed at without docs.  The service itself provides its own docs when details are needed, without requiring devs to consult outside reference material.
+
+ - Useful: The interfaces thoroughly cover everything devs actually need to make cool band mappy stuff.  All the Seattle Band Map data are easily available in whatever form is needed.
+
+ - Efficient: The service responds fast and is conscientious of bandwidth.  Transactions can easily be tailored to be as lean or as thorough as needed for any given call.
+
+ - Secure: Standards-based encryption ensures transactions are private so dev's apps don't expose their communications to the rest of the web.  Standards-based authorization ensures the dev's app and the API can trust each other to be who they say they are.
+
+
+ACCESS
+
+The Band Map API provides access to all URLs from the API root at:
+
+https://www.seattlebandmap.com/api/
+
+The API at this root is always the most recent version.
+
+
+VERSIONING
+
+To request a specific API version, use:
+
+https://www.seattlebandmap.com/api-<version>/
+
+Where <version> is the version number, for example 1.0:
+
+https://www.seattlebandmap.com/api-1.0/
+
+For a list of available API versions, use:
+
+https://www.seattlebandmap.com/api/versions
+
+
+AUTHENTICATION
+
+The API serves URLs over HTTPS, encrypted using the Transport Layer Security (TLS) protocol.
+
+OAuth 2.0 is used for authentication, as described at https://oauth.net/2/.
+
+The API supports standard Cross Origin Resource Sharing (CORS) mechanisms so that domains outside seattlebandmap.com can access Band Map API resources (see https://en.wikipedia.org/wiki/Cross-origin_resource_sharing, https://github.com/Microsoft/api-guidelines/blob/master/Guidelines.md#8-cors, and https://www.w3.org/TR/cors/).
+
+Not sure if we need to support JSONP yet.
+
+The next bits I'm not sure about either yet, need to read more about OAuth:
+
+HTTP basic authentication is supported, with username and password checked against the Band Map DB accounts table.  To make an API request with basic authentication, send an HTTP header in the request with the following format:
+
+Authorization: Basic <base64-encoded-username-password>
+
+Where <base64-encoded-username-password> is a string of format <username>:<password> encoded with Base64.
+
+After initial login and authentication as above, the server will issue secure session cookies with each response, which can be used to authenticate requests for the remainder of the session without resending your basic authentication info.  Sessions expire automatically after 30 minutes of inactivity.
+
+
+HOW TO GET STUFF
+
+The API is a standard RESTful web service (https://en.wikipedia.org/wiki/Representational_state_transfer).
+
+Devs or other users make calls ("requests") to the API's URLs ("resources" or "interfaces") over HTTPS using a browser, HTTP client, or programming language of their choice.  A typical transaction looks something like:
+
+Request:
+
+GET /api/bands HTTP/1.1
+Host: www.seattlebandmap.com
+
+Response:
+
+HTTP/1.1 200 OK
+Content-type: application/json
+Content-length: 200
+
+[Data in JSON format.]
+
+Users get data using the HTTP GET method.
+
+Response bodies, and request bodies wherever they are needed, are in JSON.
+
+
+COLLECTIONS
+
+Most of the interfaces are organized and presented in the form of "collections" of objects.  For example there is a "collection" of bands at:
+
+https://www.seattlebandmap.com/api/bands
+
+A user makes a GET request to this URL to get a list of multiple bands, presented in a consistent, easily navigable format (see URL Reference section for details).
+
+Individual objects in a collection are GETable using unique object IDs and/or usually object names as well at a sub-URL of the collection URL, for example:
+
+https://www.seattlebandmap.com/api/bands/957
+
+or
+
+https://www.seattlebandmap.com/api/bands/The Intelligence
+
+
+HOW TO MODIFY STUFF (POST, PATCH, PUT, DELETE)
+
+Users can add, modify, replace, and delete information from Band Map with the respective HTTP methods POST, PATCH, PUT, and DELETE.
+
+The resource objects listed below in the URL Reference section are generally shown as they are formatted from a GET response.  But fields on the resource objects available for modification are generally more limited than what is returned for a GET request.
+
+For POSTs:
+
+- New objects are submitted to collection URL in a JSON array in the request body, according to the format described in the URL Reference section.
+
+- "id" and "link" fields are not allowed.  The new resource's new id and link will be specified in the response body.
+
+- The API returns a "Location" HTTP header containing the location of the created resource, as well as a copy of the full created resource in the response body.  Location header example:
+
+Location: https://www.seattlebandmap.com/api/people/666
+
+For PATCHes, PUTs, and DELETEs:
+
+- Users can modify, replace, or delete an one or more objects at a collection URL by submitting a JSON array containing one or more modification objects.  The target objects in the collection are specified by the "id" field or else the "name" field on the submitted objects.
+
+- PATCH, PUT, and DELETE can also target individual collection objects one at a time using the object-sepecific sub-URL.  In these cases, "id" and "link" fields in the request body are optional and discouraged.  If the user specifies them they must be consistent with whatever resource they are acting on, or the API will return an error.  The URL is the authority on what is being addressed.
+
+
+FILTERING, SORTING, PAGING, AND OTHER API FEATURES
+
+- Expand inner resources with ?expand=<field>,... (See https://stormpath.com/blog/linking-and-resource-expansion-rest-api-tips)
+
+- Filter fields by inclusion with ?fields=<field>,<field>,... or by exclusion with ?no-fields=<field>,<field>,...  Nested object fields are addressable for filtering with, for example, ?no-fields=people.name at the /people collection URL (see below). Filtering fields should improve server response time whenever possible. (See http://www.vinaysahni.com/best-practices-for-a-pragmatic-restful-api#limiting-fields)
+
+- Filter collection results with ?filter=<filter-expression>, where <filter-expression> is as described at https://github.com/Microsoft/api-guidelines/blob/master/Guidelines.md#97-filtering.  In addition to the operators described there, 'contains'/'ct' can be used to filter on string field values.
+
+- Sort collection results alphabetically (for strings) or numerically (for integers and ids) with ?sort=<field>,<field>,... Where the first specified <field> will be the primary sort field, the next will be the secondary, etc.  Nested collections are addressable and sortable as described for ?field above.  Use <field>:asc or <field>:desc to explicitly specify ascending or descending sort for each field, ascending is default.
+
+- Specify the number of objects to retrieve from a collection resource at once using ?limit=<int>.  Use ?offset=<int> to start retrieving at the given position in the collection.  The default limit on returned objects in collections is 10000.  Pagination fields ("offset", "limit", "first", "prev", "next", and "last") are returned if (and only if) pagination is needed (because there are more total objects in the collection than the limit).  Link headers are also sent for these responses (see http://www.vinaysahni.com/best-practices-for-a-pragmatic-restful-api#pagination).
+
+- <date> and <datetime> values are strings following ISO 8601.  For dates, these are simple "full-date" strings like "YYYY-MM-DD".  For datetimes, they include an offset, like "2017-03-07T20:46:31-07:00", with the offset chosen to helpfully display the requester's local time while still representing a distinct point in time.
+
+- In addition to the methods listed in the URL Reference section below, each URL allows HEAD and OPTIONS verbs:
+
+  - HEAD: Get HTTP header data about the resource, like doing a GET but with no response body.
+
+  - OPTIONS: See which HTTP methods are available for this resource (in the "Allow" HTTP header).
+
+- The API pretty-prints the JSON in its responses by default.  To remove the pretty-printing whitespace use ?pretty=false.
+
+- The API specifies rate limits to clients with "X-Rate-Limit-Limit", "X-Rate-Limit-Remaining", "X-Rate-Limit-Reset" HTTP headers as described at http://www.vinaysahni.com/best-practices-for-a-pragmatic-restful-api#rate-limiting.  The rate limit is 100 calls per minute.
+
+
+EXAMPLE
+
+An example tailored GET request to get just the data necessary to construct the current band map SVG:
+
+GET https://www.seattlebandmap.com/api/bands?fields=bands.id,bands.name
+
+Response body:
+
+{
+  "bands": [
+    {
+      "id": 1,
+      "name": "141"
+    },
+    {
+      "id": 3,
+      "name": "1st Black Prez"
+    },
+    ...
+  ],
+}
+
+GET https://www.seattlebandmap.com/api/connections?fields=connections.band1.id,connections.band2.id,connections.description
+
+Response body:
+
+{
+  "connections": [
+    {
+      "band1": {
+        "id": <band1-id>
+      },
+      "band2": {
+        "id": <band2-id>
+      },
+      "description": <string>
+    },
+    ...
+  ]
+}
+
+
+ERRORS
+
+An error is any response with a code other than 2xx.
+
+For errors, instead of the regular response format, an error object is returned of the form:
+
+{
+  "error": {
+    "code": <string>,
+    "message": <string>
+  }
+}
+
+If there are multiple errors:
+
+{
+  "error": {
+    "code": "MultipleErrors",
+    "message": "There were multiple errors processing the request.  See 'innererrors' array.",
+    "innererrors": [
+      <error>,
+      <error>,
+      ...
+    ]
+  }
+}
+
+Other error details are similar to those suggested at https://github.com/Microsoft/api-guidelines/blob/master/Guidelines.md#7102-error-condition-responses.
+
+
+SELF-DOCUMENTATION
+
+The API is self-documenting.  Use ?help or ?doc query arguments at any URL to retrieve a human-readable, HTML formatted description of the resource, including all the HTTP methods provided there and how to use them.  Use ?schema at any URL to retrieve a machine-readable JSON schema.
+
+Additionally, full API-synched online reference documentation is provided at:
+
+https://www.seattlebandmap.com/api-docs
+
+
+CACHING
+
+The API allows clients to take advantage of response caching by sending a "Last-Modified" header with each response and honoring "If-Modified-Since" headers passed in requests (returning a 304 Not Modified status if there was no change to the requested resource).
+
+
+URL REFERENCE
+
+The API can be organized into the following high-level resource categories and their associated URLs:
+
+API Root
+  https://www.seattlebandmap.com/
+Bands
+  https://www.seattlebandmap.com/api/bands
+People
+  https://www.seattlebandmap.com/api/people
+Roles
+  https://www.seattlebandmap.com/api/roles
+Connections
+  https://www.seattlebandmap.com/api/connections
+Locations
+  https://www.seattlebandmap.com/api/locations
+  https://www.seattlebandmap.com/api/locations/cities
+  https://www.seattlebandmap.com/api/locations/states
+  https://www.seattlebandmap.com/api/locations/countries
+  https://www.seattlebandmap.com/api/locations/regions
+Admin
+  https://www.seattlebandmap.com/api/accounts
+  https://www.seattlebandmap.com/api/sessions
+  https://www.seattlebandmap.com/api/edits
+
+I tried to provide the right level of detail and depth for the objects at each resource such that:
+
+1) A human can quickly scan for the info they want without being overwhelmed by details and metadata cruft, and devs can write clean code for handling the objects without dealing with too much burdensome addressing of nested subobjects.
+
+2) But enough detail and id/link metadata are provided to satisfy anything you would intuitively/reasonably want to know if you're looking up a band in an API.  You can do what you are probably trying to do.  If you need more details/related info the links are there to follow.
+
+An example tradeoff is <band> at /bands.  I could imagine an alternate, more concise schema than the one I went with (see the actual <band> object listing below) that would look like this:
+
+<simple-band> =
+{
+  "name": <string>,
+  "clickCount": <int>,
+  "location": <string>, // most recent, of form "<city>, <state>, <country>" ("Seattle, WA, USA")
+  "people": [
+    <string>, // current member name, current role name
+    <string>,
+    ...
+  ],
+  "connected-bands": [
+    <string>, // band names
+    <string>,
+    ...
+  ]
+  "webLinks": [
+    <string>, // web links
+    <string>,
+    ...
+  ]
+}
+
+<simple-band> is way easier to read, easier to code against, and takes up less bandwidth than <band> below, but we lose:
+- previous locations
+- previous members
+- full info on all the members' roles
+- timespan info for people and their roles in the band, locations, and the band in general
+- web link annotations
+- stable ids and links to follow for details and related info
+
+Depending on what you're doing with the API, I could imagine needing some of that stuff.  And with field filtering as described above, users can pare down the output until it is almost as lean as <simple-band> (but still with nested, single-field objects in the arrays instead of just the strings).  Still, it might be worth implementing a ?simple query arg for the main collection and object URLs to also provide simple versions of objects.
+
+
+API ROOT
+
+URL: https://www.seattlebandmap.com/
+
+Methods: GET only.
+
+A GET request to the API root returns the following response, enabling intuitive discovery and traversal of the rest of the API:
+
+{
+  "version": <string>,
+  "description": "Welcome to the Seattle Band Map API!  This is an interface for accessing..."
+  "resources": { // links to the top level resources
+    "bands": {
+      "link": "https://www.seattlebandmap.com/api/bands",
+      "description": "A collection of bands."
+    },
+    "people": {
+      "link": "https://www.seattlebandmap.com/api/people/",
+      "description": "A collection of people in and associated with bands."
+    },
+    "roles": {
+      "link": "https://www.seattlebandmap.com/api/roles/",
+      "description": "A collection of roles people in the database have, like 'vocalist' and 'guitarist'."
+    },
+    ...
+  }
+}
+
+
+BANDS
+
+URL: https://www.seattlebandmap.com/api/bands
+
+Methods:
+    GET Retrieve a list of bands and their band info.
+   POST Add a new band.
+  PATCH Modify specified bands.
+    PUT Replace or add specified bands.
+ DELETE Remove specified bands.
+
+Response:
+
+<bands-collection>
+
+Where <bands-collection> for example =
+{
+  "link": "https://www.seattlebandmap.com/api/bands?limit=100&offset=500",
+  "offset": 500,
+  "limit": 100,
+  "total": 1000, // Total in the collection (total in the database).
+  "bands": [
+    <band>,
+    <band>,
+    ...
+  ],
+  "bandsCount": 100, // Bands actually returned (=== bands.length)
+  "first": {
+    "link": "https://www.seattlebandmap.com/api/bands?limit=100"
+  },
+  "prev": {
+    "link": "https://www.seattlebandmap.com/api/bands?limit=100&offset=400"
+  },
+  "next": {
+    "link": "https://www.seattlebandmap.com/api/bands?limit=100&offset=600"
+  },
+  "last": {
+    "link": "https://www.seattlebandmap.com/api/bands?limit=100&offset=900"
+  }
+}
+
+Where <band> = 
+{
+  "id": <this-band-id>,
+  "link": "https://www.seattlebandmap.com/api/bands/<this-band-id>",
+  "name": <string>,
+  "clickCount": <int>,
+  "cities": [ // ordered by most recent to oldest
+    {
+      "id": <city-id>,
+      "link": "https://www.seattlebandmap.com/api/cities/<city-id>",
+      "name": <string>, // of form "<city>, <state>, <country>" ("Seattle, WA, USA")
+      "from": <date>, // if applicable
+      "until": <date> // if applicable
+    },
+    ...
+  ],
+  "citiesCount": <int>, // I'm thinking it may be useful to include count fields for the nested
+    // collections even though users can just check the array lengths for the same info because,
+    // for example, if they only want the city count, not the city details, they could filter with
+    // ?field=cityCount.
+  "people": [
+    {
+      "id": <person-id>,
+      "link": "https://www.seattlebandmap.com/api/people/<person-id>",
+      "name" <string>,
+      "from": <date>, // if applicable
+      "until": <date>, // if applicable
+      "roles": [ // in this specific band
+        {
+          "id": <role-id>,
+          "link": "https://www.seattlebandmap.com/api/roles/<role-id>",
+          "name": <string>,
+          "from": <date>, // if applicable
+          "until": <date> // if applicable
+        },
+        ...
+      ]
+      "rolesCount": <int>
+    },
+    ...
+  ],
+  "peopleCount": <int>,
+  "connectedBands": [
+    {
+      "id": <band-id>,
+      "link": "https://www.seattlebandmap.com/api/bands/<band-id>",
+      "name": <string>,
+      "description" <string>, // plain sentence describing the connection
+    },
+    ...
+  ],
+  "connectedBandsCount": <int>,
+  "webLinks": [
+    {
+      "url": <web-link-url>,
+      "description": <string> // if one exists
+    },
+    ...
+  ],
+  "webLinksCount": <int>
+}
+
+
+URL: https://www.seattlebandmap.com/api/bands/<name-with-dash-or-underscore-spaces|band-id>
+
+Methods:
+    GET Retrieve this band's info.
+  PATCH Modify this band's info.
+    PUT Replace this band, or add it if it doesn't already exist.
+ DELETE Remove this band.
+
+Response:
+
+<band>
+
+Where <band> is as described above in /bands.
+
+
+PEOPLE
+
+URL: https://www.seattlebandmap.com/api/people
+
+Methods:
+    GET Retrieve a list of people and their info.
+   POST Add a new person.
+  PATCH Modify specified people.
+    PUT Replace or add specified people.
+ DELETE Remove specified people.
+
+Response:
+
+<people-collection>
+
+Where <people-collection> is similar to <band-collection> above, and <person> =
+{
+  "id": <this-person-id>,
+  "link": "https://www.seattlebandmap.com/api/people/<this-person-id>",
+  "name" <string>,
+  "from": <date>, // overall activity in bands, if applicable
+  "until": <date>, // if applicable
+  "bands": [
+    {
+      "id": <band-id>,
+      "link": "https://www.seattlebandmap.com/api/bands/<band-id>",
+      "name": <string>,
+      "from": <date>, // time in this band, if applicable
+      "until": <date> // if applicable
+      "roles": [ // specific to this person in this band
+        {
+          "id": <role-id>,
+          "link": "https://www.seattlebandmap.com/api/roles/<role-id>",
+          "name": <string>,
+          "from": <date>, // if applicable
+          "until": <date> // if applicable
+        },
+        ...
+      ]
+    },
+    ...
+  ],
+  "bandsCount": <int>,
+  "roles": [  // (across all bands)
+    {
+      "id": <role-id>,
+      "link": "https://www.seattlebandmap.com/api/roles/<role-id>",
+      "name": <string>,
+      "from": <date>, // if applicable
+      "until": <date> // if applicable
+    },
+    ...
+  ],
+  "rolesCount": <int>,
+  "cities": [  // (across all bands)
+    {
+      "id": <city-id>,
+      "link": "https://www.seattlebandmap.com/api/cities/<city-id>",
+      "name": <string>, // of form "<city>, <state>, <country>" ("Seattle, WA, USA")
+      "from": <date>, // if applicable
+      "until": <date> // if applicable
+    },
+    ...
+  ],
+  "citiesCount": <int>
+}
+
+URL: https://www.seattlebandmap.com/api/people/<name-with-dash-or-underscore-spaces>|<person-id>
+
+Methods:
+    GET Retrieve this person's info.
+  PATCH Modify this person's info.
+    PUT Replace this person, or add them if they don't already exist.
+ DELETE Remove this person.
+
+Response:
+
+<person>
+
+
+ROLES
+
+For data related to specific band roles (vocalists, guitarists, etc.).
+
+Might be useful to include some aggregate statistics on them, like I've added below.
+
+URL: https://www.seattlebandmap.com/api/roles
+
+Methods: GET, POST, PATCH, PUT, DELETE
+
+Response:
+
+<roles-collection>
+
+Where <role> =
+{
+  "id": <role-id>,
+  "link": "https://www.seattlebandmap.com/api/roles/<role-id>",
+  "name": <string>,
+  "people": [ // List all people in the DB with this role.  Useful?  Overkill?
+    {
+      "id": <person-id>,
+      "link": "https://www.seattlebandmap.com/api/people/<person-id>",
+      "name" <string>,
+      "from": <date>, // time this person had this role, if applicable
+      "until": <date> // if applicable
+    },
+    ...
+  ],
+  "peopleCount": <int>,
+  "bands": [ // List all bands in the DB with someone with this role.  Useful?  Overkill?
+    {
+      "id": <band-id>,
+      "link": "https://www.seattlebandmap.com/api/bands/<band-id>",
+      "name": <string>,
+      "from": <date>, // time this band had someone with this role, if applicable (usually not)
+      "until": <date> // if applicable
+    },
+    ...
+  ],
+  "bandsCount": <int>,
+  // "cities" would probably be overkill...
+}
+
+URL: https://www.seattlebandmap.com/api/roles/<name-with-dash-or-underscore-spaces|role-id>
+
+Methods: GET, PATCH, PUT, DELETE
+
+Response:
+
+<role>
+
+
+CONNECTIONS
+
+URL: https://www.seattlebandmap.com/api/connections
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <connection-collection>
+
+Where <connection> = {
+  "id": "<band1-id>-<band2-id>",
+  "link": "https://www.seattlebandmap.com/api/connections/<band1-id>-<band2-id>",
+  "band1": {
+    "id": <band1-id>,
+    "link": <band1-link>,
+    "name": <band1-name>
+  },
+  "band2": {
+    "id": <band2-id>,
+    "link": <band2-link>,
+    "name": <band2-name>
+  },
+  "description": <string>,
+  "from": <date>, // when did these bands have this connection
+  "until": <date>
+}
+
+And where the "connections" array entries are unique (no symmetric a-b, b-a connections) and is ordered by default from connections involving the band with the most connections to connections involving the band with the least connections.
+
+URL: https://www.seattlebandmap.com/api/connections/<band1-id>-<band2-id>|<band1-name>-<band2-name>
+Methods: GET, PATCH, PUT, DELETE
+Response: <connection>
+
+Only connection descriptions can be modified.  The bands involved (and therefore the connection object itself) can't be modified or replaced - only added or deleted.  Deletes will fail if the bands concerned still share members in the database according to the people/bands tables.  Connections can be addressed by the "canonical" ordering of band1-band2 (whatever is in the database or what the API ordering algorithm decides is the right order), or the opposite ordering.  That is, if connection "b-a" is requested when "a-b" is what actually exists in the collection, connection "a-b" is still returned.
+
+
+LOCATIONS
+
+URL: https://www.seattlebandmap.com/api/locations
+
+Methods: GET
+
+Response:
+
+{
+  "version": <string>,
+  "description": "This namespace includes various resources related to band locations.  See the 'resources' field for available URLs."
+  "resources": {
+    "cities": {
+      "link": "https://www.seattlebandmap.com/api/locations/cities",
+      "description": "A collection of cities where bands are based."
+    },
+    "states": {
+      "link": "https://www.seattlebandmap.com/api/locations/states",
+      "description": "A collection of states where bands are based."
+    },
+    ...
+  }
+}
+
+URL: https://www.seattlebandmap.com/api/locations/cities
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <cities-collection>
+
+Where <city> = {
+  "id": <city-id>,
+  "link": <city-url>,
+  "name": <string>,
+  "state": <state-basics>,
+  "country": <country-basics>
+  // Plus bands?, people??, roles???  Nah probably going too far.  But maybe some stats about them.
+}
+
+Where <state-basics> and <country-basics> (and <*-basics> in general from now on in this document) means a version of the object as described above or below with just the "link", "id", and "name" fields, no nested collections or extra stuff.
+
+URL: https://www.seattlebandmap.com/api/locations/cities/<name-with-dash-etc-blah-blah|city-id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <city>
+
+URL: https://www.seattlebandmap.com/api/locations/states
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <states-collection>
+
+Where <state> = {
+  "id": <state-id>,
+  "link": <state-url>,
+  "name": <string>, // Like "WA", or province/prefecture/whatever abbreviation.
+  "country": <country>,
+  "cities": [
+    <city-basics>,
+    <city-basics>,
+    ...
+  ],
+  "citiesCount": <int>
+}
+
+URL: https://www.seattlebandmap.com/api/locations/states/<name|id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <state>
+
+URL: https://www.seattlebandmap.com/api/locations/countries
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <countries-collection>
+
+Where <country> = {
+  "id": <country-id>,
+  "link": <country-url>,
+  "name": <string>,
+  "states": [
+    <state-basics>,
+    <state-basics>,
+    ...
+  ],
+  "statesCount": <int>
+}
+
+URL: https://www.seattlebandmap.com/api/locations/countries/<name|id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <country>
+
+We could also reflect the "countries contain states contain cities" relationships as a series of branching sub-URLs, so you could address a city like:
+
+https://www.seattlebandmap.com/api/locations/countries/<country>/states/<state>/cities/<city>
+
+Might be more intuitive, but also seems more burdensome (more typing) than a flat URL structure.
+
+Still, maybe it wouldn't hurt to provide both?  And maybe also provide other sub-collection URLs?  Like:
+
+https://www.seattlebandmap.com/api/bands/<band>/people
+
+This would provide another discoverability option, potentially more intuitive to some users, for navigating around, at the cost of a more cluttered, potentially confusing full API directory, and of course more implementation time and complexity.
+
+URL: https://www.seattlebandmap.com/api/locations/regions
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <regions-collection>
+
+Where <region> = {
+  "id": <int>,
+  "link": <region-url>,
+  "name": <string>,
+  "subRegions": [
+    <region-basics>,
+    ...
+  ]
+  "subRegionsCount": <int>,
+  "countries": [
+    <country-basics>,
+    ...
+  ],
+  "countriesCount" <int>,
+  "states": [
+    <state-basics>,
+    ...
+  ],
+  "statesCount": <int>,
+  "cities": [
+    <city-basics>,
+    <city-basics>,
+    ...
+  ],
+  "citiesCount": <int>
+}
+
+URL: https://www.seattlebandmap.com/api/locations/regions/<name|id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <region>
+
+
+ADMIN
+
+The admin APIs are generally for Band Map admins.  They will return 403 Forbidden errors to calls from non-admin users.  Exceptions are POSTs to the /accounts collection from anonymous sessions for initial new user signups and GET/PATCH/PUT/DELETE requests from logged-in individual users' sessions to their own account resource at /accounts/<account-name|account-id>.
+
+URL: https://www.seattlebandmap.com/api/admin/accounts
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <account-collection>
+
+Where <account> = {
+  "id": <account-id>,
+  "link": "https://www.seattlebandmap.com/api/admin/accounts/<account-id>",
+  "username": <string>,
+  "type": "user"|"admin",
+  "identityType": "bandmap",
+  "email": <string>,
+  // For initial signup, users can POST a new account object with a hashed and salted password key
+  // using a nonce in the "password" field.  This will be re-hashed and stored serverside.
+  // (See http://stackoverflow.com/questions/3391242/
+  // should-i-hash-the-password-before-sending-it-to-the-server-side).
+  // The "oldPassword" field is required for PATCHing password changes (with identical security
+  // precautions).  GETs do not return either password field.
+  "password": <string>,
+  "oldPassword": <string>,
+  "isAccountVerified": <boolean>,
+  "person": <person-basics>, // Appears if this account has an associated person resource.
+  // Admin requests only:
+  "isAccountDeleted": <boolean>, // Deleted accounts only visible and returned to admin requests.
+  "recentSessions": [<session-basics>, ...], // One year's worth, max 100.
+  "recentSessionsCount": <int>,
+  "totalSessionsCount": <int>,
+  "recentEdits": [<edit-basics>, ...], // One year's worth, max 10000.
+  "recentEditsCount": <int>,
+  "totalEditsCount": <int>
+}
+
+URL: https://www.seattlebandmap.com/api/admin/accounts/<username|id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <account>
+
+A successful DELETE call just sets the account's is_deleted flag in the database.
+
+URL: https://www.seattlebandmap.com/api/admin/sessions
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <session-collection>
+
+Where <session> = {
+  "id": <session-id>,
+  "link": "https://www.seattlebandmap.com/api/admin/sessions/<session-id>",
+  "ipAddress": <string>,
+  "account": <account-basics>, // If this session has an associated account.
+  "start": <datetime>,
+  "end": <datetime>,
+  "edits": [<edit-basics>, ...],
+  "editsCount": <int>
+}
+
+Use the special query arg filters ?account=<username|id|anonymous> and ?ip-address=<ip-address> to GET just the sessions for a specified account or IP address.
+
+URL: https://www.seattlebandmap.com/api/admin/sessions/<session-id>
+Methods: GET, POST, PATCH, PUT, DELETE
+Response: <session>
+
+URL: https://www.seattlebandmap.com/api/admin/edits
+Methods: GET, DELETE
+Response: <edit-collection>
+
+Where <edit> = {
+  "id": <edit-id>,
+  "link": "https://www.seattlebandmap.com/api/edits/<edit-id>",
+  "session": <session-basics>,
+  // Friendly "display phrase" for this edit, suitable for showing in an easily-human-scannable
+  // edit history table.  Like "Added the band Love Battery." or "Changed the role of Duff
+  // McKagen in Ten Minute Warning from bassist to guitarist.":
+  "description": <string>,
+  "type": "insert"|"update"|"delete",
+  "table": <string>,
+  "targetRowId": <int>,
+  "column": <string>,
+  "oldValue": <string>,
+  "newValue": <string>
+}
+
+Edits are typically registered in the DB as part of the serverside app logic, not POSTed to this resource, so no POST method is provided here.
+
+Use the ?filter query arg filters ?account=<username|account-id|anonymous>, ?session=<session-id>, and ?ip-address=<ip-address> to GET just the edits for a specified account, session or IP address.
+
+URL: https://www.seattlebandmap.com/api/admin/edits/<edit-id>
+Methods: GET, PATCH, PUT, DELETE
+Response: <edit>
+
+Not sure if we should actually provide POST/PATCH/PUT/DELETEing through the API here, even to admins.
